@@ -1,0 +1,18 @@
+# Development environment configuration
+environment: development
+debug: true
+logging:
+  level: DEBUG
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+api:
+  host: 0.0.0.0
+  port: 8000
+database:
+  uri: postgresql://postgres:postgres@localhost:5432/logging_db  # Local dev PostgreSQL
+redis:
+  host: localhost
+  port: 6379
+security:
+  api_key: dev_secret_key  # For testing; override with .env in prod
+checkpoint:
+  interval_seconds: 60  # Frequent checkpoints for dev

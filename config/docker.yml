@@ -1,0 +1,18 @@
+# Docker-specific configuration (overrides for containerized env)
+environment: docker
+debug: false
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+api:
+  host: 0.0.0.0
+  port: 8000
+database:
+  uri: postgresql://postgres:postgres@postgres:5432/logging_db  # Container service name
+redis:
+  host: redis
+  port: 6379
+security:
+  api_key: ${API_KEY}  # From docker env
+checkpoint:
+  interval_seconds: 180  # Balanced for container env
