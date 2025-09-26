@@ -1,0 +1,54 @@
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+*.swp
+.pytest_cache/
+.coverage
+
+# Environment
+.env
+*.env
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json  # If not committed
+
+# PHP
+vendor/
+composer.lock  # If not committed
+
+# Docker
+*.dockerignore
+Dockerfile.*
+docker-compose.override.yml
+
+# IDE/Editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs and databases
+*.log
+*.sql
+*.sqlite
+data/
+
+# Misc
+tmp/
+temp/
+cache/ 
