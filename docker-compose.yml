@@ -1,24 +1,37 @@
-version: '3'
+version: '3.8'
+
 services:
-  api:
-    build: .
+  fluentd:
+    image: fluent/fluentd:latest
+    container_name: universal-logging-fluentd
     ports:
-      - "8000:8000"
-    depends_on:
-      - redis
-      - postgres
-    env_file: .env
+      - "9880:9880"
+      - "24224:24224"
+    volumes:
+      - ./fluent/fluent.conf:/fluentd/etc/fluent.conf:ro
+      - ./logs:/fluentd/log
+    networks:
+      - logging-network
+    user: "root"
 
   redis:
-    image: redis:latest
+    image: redis:alpine
+    container_name: universal-logging-redis
     ports:
       - "6379:6379"
+    networks:
+      - logging-network
 
-  postgres:
-    image: postgres:15
+  juice-shop:
+    image: bkimminich/juice-shop
+    container_name: juice-shop
     ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_DB: logging_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres 
+      - "3000:3000"
+    networks:
+      - logging-network
+    depends_on:
+      - fluentd
+
+networks:
+  logging-network:
+    driver: bridge 

@@ -7,4 +7,7 @@ redis==5.0.1
 python-dotenv==1.0.0
 httpx==0.25.2
 aioredis==2.0.1
-# Add pytest for testing if needed: pytest==7.4.3
+pytest==7.4.3
+docker==6.1.3
+requests==2.31.0
+flask==3.0.0 
