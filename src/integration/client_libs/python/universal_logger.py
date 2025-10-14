@@ -2,142 +2,150 @@ import requests
 from datetime import datetime
 import socket
 import os
-import logging  # For error logging
-import time     # For custom rate limiting
+import uuid
+import psutil
 
 try:
     from pytz import UTC
 except ImportError:
-    # Fallback if pytz not installed
     from datetime import timezone
     UTC = timezone.utc
 
 class UniversalLogger:
-    """Universal Logger Client - Sends logs to Fluentd with proper timestamp handling, error handling, and rate limiting"""
+    """Universal Logger with Metrics and Correlation"""
     
-    def __init__(self, fluentd_url="http://localhost:9880", auth_token=None, rate_limit_calls=100, rate_limit_period=60):
+    def __init__(self, fluentd_url="http://localhost:9880", auth_token=None, service_name=None):
         self.fluentd_url = fluentd_url
         self.auth_token = auth_token
         self.hostname = socket.gethostname()
         self.process_id = os.getpid()
         
-        # Custom rate limiter: max_calls per period (seconds), e.g., 100/min
-        self.rate_limit_calls = rate_limit_calls
-        self.rate_limit_period = rate_limit_period
-        self._call_times = []  # List of recent call timestamps
+        # Generate unique session ID for correlation
+        self.session_id = str(uuid.uuid4())
         
-        # Setup error logging to file (creates errors.log if missing)
-        logging.basicConfig(
-            filename='errors.log',
-            level=logging.ERROR,
-            format='%(asctime)s - %(levelname)s - %(message)s - PID: %(process)d'
-        )
-        self.logger = logging.getLogger(__name__)
-    
-    def _rate_limited(self):
-        """Custom rate limiter: Enforce max calls per period with sleep if exceeded"""
-        now = time.time()
-        # Remove old timestamps outside the window
-        self._call_times = [t for t in self._call_times if now - t < self.rate_limit_period]
+        # Store service name
+        self.service_name = service_name or "unknown-service"
         
-        if len(self._call_times) >= self.rate_limit_calls:
-            # Too many recent calls – sleep until oldest expires
-            sleep_time = self.rate_limit_period - (now - self._call_times[0])
-            if sleep_time > 0:
-                print(f"✗ Rate limited: Sleeping {sleep_time:.1f}s")
-                time.sleep(sleep_time)
-            # Recheck after sleep
-            self._rate_limited()  # Recursive check (safe for short sleeps)
-        else:
-            # OK to proceed – add current time
-            self._call_times.append(now)
+        # Track log sequence for this session
+        self.log_sequence = 0
     
     def _ensure_utc_timestamp(self, timestamp=None):
-        """Ensure timestamp is a UTC datetime object, handling parsing and defaults"""
+        """Ensure timestamp is in UTC format"""
         if timestamp is None:
-            # Create new UTC timestamp
-            return datetime.now(UTC)
+            return datetime.now(UTC).isoformat()
         
-        # If timestamp is string, parse it
         if isinstance(timestamp, str):
             try:
                 dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                # Convert to UTC if needed
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=UTC)
-                return dt.astimezone(UTC)
-            except ValueError as e:
-                print(f"Invalid timestamp '{timestamp}': {e}. Using current UTC.")
-                return datetime.now(UTC)
+                return dt.astimezone(UTC).isoformat()
+            except Exception:
+                return datetime.now(UTC).isoformat()
         
-        # If timestamp is datetime object
         if isinstance(timestamp, datetime):
             if timestamp.tzinfo is None:
                 timestamp = timestamp.replace(tzinfo=UTC)
-            return timestamp.astimezone(UTC)
+            return timestamp.astimezone(UTC).isoformat()
         
-        # Fallback
-        print(f"Invalid timestamp type '{type(timestamp)}'. Using current UTC.")
-        return datetime.now(UTC)
+        return datetime.now(UTC).isoformat()
     
-    def log(self, level, message, source, metadata=None, max_retries=3):
-        """Send log to Fluentd with standardized UTC timestamp, rate limiting, and retries"""
+    def _get_system_metrics(self):
+        """Collect system metrics"""
+        try:
+            process = psutil.Process(self.process_id)
+            
+            return {
+                "cpu_percent": psutil.cpu_percent(interval=0.1),
+                "memory_usage_mb": process.memory_info().rss / (1024 * 1024),
+                "memory_percent": process.memory_percent(),
+                "disk_usage_percent": psutil.disk_usage('/').percent
+            }
+        except Exception as e:
+            return {"metrics_error": str(e)}
+    
+    def log(self, level, message, source, metadata=None, request_id=None):
+        """
+        Send enriched log to Fluentd
+        
+        Args:
+            level: Log level (INFO, ERROR, etc.)
+            message: Log message
+            source: Source of log (app name)
+            metadata: Additional metadata dict
+            request_id: Optional request ID for correlation
+        """
         if metadata is None:
             metadata = {}
         
-        # Get UTC datetime object
-        dt = self._ensure_utc_timestamp(metadata.get('timestamp'))
+        # Increment sequence
+        self.log_sequence += 1
         
-        # Standardize timestamp string in metadata
-        metadata['timestamp'] = dt.isoformat()
+        # Generate request ID if not provided
+        if request_id is None:
+            request_id = str(uuid.uuid4())
         
+        # Ensure UTC timestamp
+        timestamp = self._ensure_utc_timestamp(metadata.get('timestamp'))
+        
+        # Get system metrics
+        metrics = self._get_system_metrics()
+        
+        # Build enriched payload
         payload = {
-            'time': dt.timestamp(),  # Unix float for Fluentd event time (avoids parsing issues)
+            'timestamp': timestamp,
             'level': level.upper(),
             'message': message,
             'source': source,
-            'metadata': metadata,
+            
+            # Correlation fields
+            'session_id': self.session_id,
+            'request_id': request_id,
+            'sequence': self.log_sequence,
+            
+            # System info
             'hostname': self.hostname,
-            'process_id': self.process_id
+            'process_id': self.process_id,
+            'service_name': self.service_name,
+            
+            # Metrics
+            'metrics': metrics,
+            
+            # User metadata
+            'metadata': metadata
         }
         
-        # Apply custom rate limiting
         try:
-            self._rate_limited()
-        except Exception as rate_error:
-            self.logger.error(f"Rate limit error: {rate_error}")
-            print(f"✗ Rate limited: {message}")
-            return False
-        
-        # Retry loop for network/HTTP errors
-        for attempt in range(max_retries):
-            try:
-                response = requests.post(
-                    self.fluentd_url,
-                    json=payload,
-                    headers={'Content-Type': 'application/json'},
-                    timeout=5
-                )
+            response = requests.post(
+                self.fluentd_url,
+                json=payload,
+                headers={'Content-Type': 'application/json'},
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                print(f"✓ Log sent: {level} - {message} [Session: {self.session_id[:8]}...]")
+                return True
+            else:
+                print(f"✗ Failed: {response.status_code}")
+                return False
                 
-                if response.status_code == 200:
-                    print(f"✓ Log sent: {level} - {message}")
-                    return True
-                else:
-                    error_msg = f"HTTP {response.status_code}: {response.text}"
-                    if attempt < max_retries - 1:
-                        print(f"⚠ Retry {attempt + 1}/{max_retries}: {error_msg}")
-                    else:
-                        self.logger.error(f"Failed after {max_retries} retries: {error_msg} | Payload: {payload}")
-                        print(f"✗ Failed after retries: {error_msg}")
-                        return False
-                    
-            except requests.exceptions.RequestException as e:
-                error_msg = f"Network error: {e}"
-                if attempt < max_retries - 1:
-                    print(f"⚠ Retry {attempt + 1}/{max_retries}: {error_msg}")
-                else:
-                    self.logger.error(f"Network failed after {max_retries} retries: {error_msg} | Payload: {payload}")
-                    print(f"✗ Network failed: {error_msg} | [FALLBACK] {level}: {message}")
-                    return False
+        except Exception as e:
+            print(f"✗ Error: {e}")
+            print(f"[FALLBACK] {level}: {message}")
+            return False
+    
+    def log_with_trace(self, level, message, source, trace_data=None, metadata=None):
+        """
+        Log with distributed tracing context
         
-        return False  # Fallback if all retries fail 
+        Args:
+            trace_data: Dict with 'trace_id', 'span_id', 'parent_span_id'
+        """
+        if metadata is None:
+            metadata = {}
+        
+        if trace_data:
+            metadata['trace'] = trace_data
+        
+        return self.log(level, message, source, metadata)

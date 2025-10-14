@@ -2,9 +2,7 @@ version: '3.8'
 
 services:
   fluentd:
-    build:
-      context: ./fluent
-      dockerfile: Dockerfile.fluentd
+    image: fluent/fluentd:latest
     container_name: universal-logging-fluentd
     ports:
       - "9880:9880"
@@ -15,8 +13,6 @@ services:
     networks:
       - logging-network
     user: "root"
-    depends_on:
-      - elasticsearch
 
   redis:
     image: redis:alpine
@@ -33,27 +29,7 @@ services:
       - "3000:3000"
     networks:
       - logging-network
-    depends_on:
-      - fluentd
-
-  elasticsearch:
-    image: elasticsearch:7.17.9  # Stable for plugin
-    container_name: universal-logging-elasticsearch
-    environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=false
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
-    ports:
-      - "9200:9200"
-    volumes:
-      - elasticsearch-data:/usr/share/elasticsearch/data
-    networks:
-      - logging-network
 
 networks:
   logging-network:
     driver: bridge
-
-volumes:
-  elasticsearch-data:
-    driver: local
