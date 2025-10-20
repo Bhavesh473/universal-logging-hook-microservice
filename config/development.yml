@@ -1,18 +1,27 @@
 # Development environment configuration
 environment: development
-debug: true
+
 logging:
   level: DEBUG
-  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  format: "%(asctime)s %(name)s %(levelname)s %(message)s"
+
 api:
   host: 0.0.0.0
   port: 8000
-database:
-  uri: postgresql://postgres:postgres@localhost:5432/logging_db  # Local dev PostgreSQL
+
+# Database: Optional for persistent storage (uncomment if using Postgres)
+# database:
+#   host: localhost
+#   port: 5432
+#   name: logging
+#   user: postgres  # Add your username
+#   password: your_dev_password  # Use .env for security
+
 redis:
-  host: localhost
+  host: localhost  # Or 'redis' in Docker network
   port: 6379
+
 security:
-  api_key: dev_secret_key  # For testing; override with .env in prod
-checkpoint:
-  interval_seconds: 60  # Frequent checkpoints for dev
+  key: dev secret key  # For testing; override with env in prod
+
+checkpoint_interval_seconds: 60  # Frequent checkpoints for dev

@@ -1,65 +1,147 @@
 # Universal Logging Hook Microservice
 
 ## Overview
-This project implements a universal logging microservice that can hook into any application for centralized logging. It supports log ingestion via API, processing (normalization, timestamping), queuing in Redis, persistent storage in PostgreSQL, event ordering with sequence numbers, checkpoint management, and log replay. The service is built with FastAPI for the HTTP server and is containerized with Docker.
+The Universal Logging Hook Microservice is a DevOps tool for real-time log capture, aggregation, and visualization from containerized web applications (e.g., OWASP Juice Shop). It hooks into Docker logs via Nginx proxy (JSON-formatted HTTP requests), aggregates with Fluentd, caches in Redis for fast queries, and provides a Flask-based dashboard for monitoring, filtering, sensitive event detection (e.g., POST/DELETE API calls), and metrics. This sets the foundation for a deterministic Replay Engine (future component) to replay user sessions from logs.
 
-The project is divided between two members:
-- **Member A (Sumitra)**: Core service development (API, processing, storage, security, performance, containerization).
-- **Member B (Bhavesh)**: Integration and operations (client libraries, auto-discovery, monitoring, testing, documentation, deployment support).
+Built for scalability and observability, it supports multi-container environments and prepares logs for security auditing, performance analysis, and automated testing. Core tech: Docker, Nginx, Fluentd, Redis, Flask + Chart.js.
 
-This split allows parallel development with clear integration points via API contracts.
+*Project Division (Team Split):*
+- *Member A (Sumitra)*: Core service (API ingestion, processing, storage, security, async optimization, containerization).
+- *Member B (Bhavesh)*: Integration & Ops (client libraries, auto-discovery, monitoring dashboard, testing, documentation, deployment).
+
+Parallel development via API contracts; single repo for integration.
 
 ## Features
-- **API Endpoints**: `/logs` (POST for log ingestion), `/checkpoint` (POST for snapshots), `/replay/{checkpoint_id}` (GET for replay).
-- **Storage**: Redis for queuing and sequencing, PostgreSQL for persistence.
-- **Security**: API key authentication.
-- **Optimization**: Async processing with background tasks.
-- **Integration**: Multi-language client libraries (Python, Node.js, PHP), legacy forwarding, auto-discovery.
-- **Ops**: Monitoring, testing framework, deployment templates.
+- *Log Ingestion*: Captures structured JSON logs from Nginx stdout (HTTP methods, paths, status, metadata like IP/user-agent).
+- *Aggregation & Caching*: Fluentd parses/forwards to Redis (TTL-based queuing for real-time access).
+- *Sensitive Event Detection*: Auto-flags high-risk actions (e.g., /api/BasketItems/ POST as SENSITIVE).
+- *Dashboard*: Flask UI with live tailing, filters (level/source/search/time), metrics (events/min, error ratio), bar charts, expandable metadata, and toggles (sensitive-only/live mode).
+- *API Support*: FastAPI endpoints for programmatic ingestion/queries (e.g., POST /logs, GET /logs?filter=...).
+- *Security*: API key auth (via .env); metadata redaction (e.g., mask IPs in prod).
+- *Ops Tools*: Multi-language clients (Python/JS/Go), CI/CD hooks (pytest/Jenkins), deployment templates (Docker Compose/K8s).
+- *Extensibility*: Checkpointing for replay (sequence numbers, snapshots); async background tasks.
 
 ## Prerequisites
 - Python 3.10+
-- Docker and Docker Compose
+- Docker & Docker Compose (v2+)
 - Git
 
-## Setup
-1. Clone the repository: https://github.com/Bhavesh473/universal-logging-hook-microservice.git
+## Quick Start
+1. *Clone the Repo*:
+   
+   git clone https://github.com/Bhavesh473/universal-logging-hook-microservice.git
+   cd universal-logging-hook-microservice
+   
 
-2. Create and activate virtual environment: python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+2. *Setup Environment*:
+   - Copy .env.example to .env and configure (e.g., API_KEY=dev_universal_logging_key_2025_xyz).
+   - Install Python deps: pip install -r requirements.txt
 
-3. Install dependencies: pip install -r requirements.txt
+3. *Start Services*:
+   
+   docker-compose up -d  # Launches Nginx proxy, Juice Shop, Fluentd, Redis
+   sleep 15  # Wait for init
+   docker ps  # Verify all "Up"
+   
 
-4. Configure environment: Copy `config/development.yml` values to `.env` or set directly (e.g., POSTGRES_URI, REDIS_HOST, API_KEY).
+4. *Launch Dashboard*:
+   
+   python dashboard.py  # Runs Flask on http://localhost:5000
+   
 
-5. Start services: docker-compose up -d
+5. *Test with Juice Shop*:
+   - Visit http://localhost:3000 (proxied app).
+   - Perform actions: Login (Google/email), search "apple", add to basket (Apple Juice, Banana Juice), remove item, logout.
+   - Switch to dashboard tab: See real logs (e.g., POST /rest/user/login - SENSITIVE), metrics (e.g., 225 total, 48 sensitive), and apply filters.
 
-6. Initialize database (runs SQLAlchemy table creation): python -c "from src.core.storage import Base, engine; Base.metadata.create_all(bind=engine)"
+6. *Stop*:
+   
+   Ctrl+C  # Dashboard
+   docker-compose down
+   
 
-## Running the Service
-- Local: `python src/main.py` (runs on http://localhost:8000)
-- Docker: `docker-compose up --build`
-- Access Swagger docs: http://localhost:8000/docs
+*Expected Demo Flow*: 10-15 sensitive events captured; error ratio <1%; live mode shows instant updates.
+
+## API Usage
+- *Base URL*: http://localhost:8000
+- *Ingestion*: POST /logs (JSON body: { "level": "INFO", "message": "...", "source": "app", "metadata": {} }; header: X-API-KEY).
+- *Query*: GET /logs?filter_level=ERROR&time_window=5 (returns filtered array).
+- *Swagger Docs*: http://localhost:8000/docs (auto-generated by FastAPI).
+- *Batch*: POST /logs/batch for high-volume.
+
+Example (Python client):
+python
+import requests
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+headers = {"X-API-KEY": os.getenv("API_KEY"), "Content-Type": "application/json"}
+payload = {"level": "INFO", "message": "Test event", "source": "test-app"}
+response = requests.post("http://localhost:8000/logs", json=payload, headers=headers)
+print(response.json())  # {"id": "uuid", "status": "enqueued"}
+
+
+See docs/api-specification.md for full spec.
 
 ## Testing
-- Run tests: `./scripts/test.sh`
-- Use Postman or Swagger to test endpoints (include X-API-KEY header).
+- *Unit/Integration*: pytest tests/ (covers log parsing, sensitive detection, Redis queries).
+- *E2E*: Run ./scripts/test_e2e.sh (automates Juice Shop actions + dashboard assertions).
+- *Postman/Swagger*: Test API endpoints with auth header.
+- *Load Test*: Use locust (in scripts/) to simulate 100 reqs/sec.
 
 ## Deployment
-- Build and deploy: `./scripts/deploy.sh` (customize for your registry/K8s).
-- See `docs/deployment.md` for details.
+- *Dev/Local*: Docker Compose (as above).
+- *Prod*: Kubernetes/Helm (see helm/ dir); scale Fluentd replicas; use Redis Cluster.
+- *CI/CD*: GitHub Actions/Jenkins templates in .github/workflows/ (e.g., build/test/deploy on push).
+- Customize: ./scripts/deploy.sh (pushes to registry, deploys to K8s).
+
+Details: docs/deployment.md.
 
 ## Directory Structure
-- `src/core/`: Core components (API, processor, storage, security).
-- `src/integration/`: Integration tools and client libraries.
-- `config/`: Environment configs.
-- `tests/`: Test suites.
-- `docs/`: Documentation.
-- `scripts/`: Automation scripts.
+
+universal-logging-hook-microservice/
+├── docker-compose.yml          # Services: nginx, juice-shop, fluentd, redis
+├── dashboard.py                # Flask UI (metrics, filters, live tail)
+├── requirements.txt            # Python deps (FastAPI, Flask, Redis, etc.)
+├── .env.example                # Config template
+├── config/
+│   └── development.yml         # Env-specific settings
+├── docs/                       # Full docs (api-spec, architecture, etc.)
+├── fluent/                     # Fluentd config
+├── nginx/                      # Nginx conf (JSON logging)
+├── scripts/                    # Automation (test.sh, deploy.sh)
+├── src/                        # Core (if expanding: main.py, storage.py)
+├── tests/                      # Pytest suites
+└── README.md                   # This file
+
+
+## Architecture
+
+[User/App] --> [Nginx Proxy (JSON Logs)] --> [Fluentd Aggregator] --> [Redis Cache]
+                                                                 |
+                                                                 v
+[FastAPI Core (Ingestion/Processing)] <--> [Flask Dashboard (Queries/UI)]
+                                                                 |
+                                                                 v
+[Postgres (Optional Persistence)] <-- [Checkpoints for Replay Engine]
+
+See docs/architecture.md for diagrams and flows.
 
 ## Contributing
-- Member A: Focus on core/.
-- Member B: Focus on integration/.
-- Use single repo; combine in `main.py`.
+- *Guidelines*: Fork → Branch (e.g., feature/dashboard-fix) → PR to main with tests/docs.
+- *Member Focus*:
+  - Sumitra: src/core/ (API, storage, security).
+  - Bhavesh: integration/, docs/, scripts/, dashboard enhancements.
+- *Issues*: Use GitHub labels (bug, enhancement, docs).
+- *Code Style*: Black formatter; pre-commit hooks.
 
-For full architecture, see `docs/architecture.md`. For integration, see `docs/integration-guide.md`.
+## License
+MIT License. See LICENSE file.
+
+## Acknowledgments
+- OWASP Juice Shop for demo app.
+- Fluentd/Redis for robust logging stack.
+- Inspired by ELK but lightweight for microservices.
+
+For questions: Open an issue or see docs/integration-guide.md. 🚀
