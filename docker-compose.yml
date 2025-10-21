@@ -5,27 +5,52 @@ services:
     ports:
       - "9880:9880"
       - "24224:24224"
+      - "5140:5140"
     volumes:
       - ./fluent/fluent.conf:/fluentd/etc/fluent.conf:ro
       - ./logs:/fluentd/log
     networks:
       - logging-network
     user: "root"
+    depends_on:
+      - replay-sidecar
+    restart: unless-stopped
 
   redis:
-    image: redis:alpine
+    image: redis:7-alpine
     container_name: universal-logging-redis
     ports:
       - "6379:6379"
     networks:
       - logging-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+
+  replay-sidecar:
+    build:
+      context: ./sidecar
+      dockerfile: Dockerfile
+    container_name: replay-sidecar
+    ports:
+      - "8200:8200"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - STREAM_KEY=logs:stream
+      - REPLAY_SHARED_TOKEN=mysecret
+    depends_on:
+      - redis
+    networks:
+      - logging-network
+    restart: unless-stopped
 
   juice-shop:
     image: bkimminich/juice-shop
     container_name: juice-shop
     networks:
       - logging-network
-    # No ports exposed - only accessible via nginx
+    restart: unless-stopped
 
   juice-proxy:
     image: nginx:alpine
@@ -39,7 +64,12 @@ services:
       - juice-shop
     networks:
       - logging-network
+    restart: unless-stopped
 
 networks:
   logging-network:
     driver: bridge
+
+volumes:
+  redis-data:
+    driver: local
