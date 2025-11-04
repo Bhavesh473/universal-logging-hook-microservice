@@ -12,3 +12,4 @@ SQLAlchemy==2.0.44
 uvicorn==0.38.0
 flask==3.0.0
 redis==5.0.1
+requests
