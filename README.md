@@ -98,35 +98,6 @@ See docs/api-specification.md for full spec.
 
 Details: docs/deployment.md.
 
-## Directory Structure
-
-universal-logging-hook-microservice/
-├── docker-compose.yml          # Services: nginx, juice-shop, fluentd, redis
-├── dashboard.py                # Flask UI (metrics, filters, live tail)
-├── requirements.txt            # Python deps (FastAPI, Flask, Redis, etc.)
-├── .env.example                # Config template
-├── config/
-│   └── development.yml         # Env-specific settings
-├── docs/                       # Full docs (api-spec, architecture, etc.)
-├── fluent/                     # Fluentd config
-├── nginx/                      # Nginx conf (JSON logging)
-├── scripts/                    # Automation (test.sh, deploy.sh)
-├── src/                        # Core (if expanding: main.py, storage.py)
-├── tests/                      # Pytest suites
-└── README.md                   # This file
-
-
-## Architecture
-
-[User/App] --> [Nginx Proxy (JSON Logs)] --> [Fluentd Aggregator] --> [Redis Cache]
-                                                                 |
-                                                                 v
-[FastAPI Core (Ingestion/Processing)] <--> [Flask Dashboard (Queries/UI)]
-                                                                 |
-                                                                 v
-[Postgres (Optional Persistence)] <-- [Checkpoints for Replay Engine]
-
-See docs/architecture.md for diagrams and flows.
 
 ## Contributing
 - *Guidelines*: Fork → Branch (e.g., feature/dashboard-fix) → PR to main with tests/docs.
